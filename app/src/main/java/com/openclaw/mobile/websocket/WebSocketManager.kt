@@ -1,16 +1,20 @@
 package com.openclaw.mobile.websocket
 
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import okhttp3.*
-import java.util.concurrent.TimeUnit
+import io.socket.client.IO
+import io.socket.client.Socket
+import io.socket.emitter.Emitter
+import org.json.JSONObject
+import java.net.URISyntaxException
 
 /**
- * WebSocketManager - WebSocket 連接管理器
+ * WebSocketManager - Socket.IO 連接管理器
  */
 class WebSocketManager(
-    private val wsUrl: String,
+    private val serverUrl: String,
     private val listener: MessageListener
 ) {
     
@@ -18,13 +22,10 @@ class WebSocketManager(
         private const val TAG = "WebSocketManager"
     }
     
-    private var webSocket: WebSocket? = null
-    private val client = OkHttpClient.Builder()
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .build()
-    
+    private var socket: Socket? = null
     private var isManualDisconnect = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val deviceId = "${Build.MANUFACTURER}-${Build.MODEL}-${System.currentTimeMillis()}"
     
     interface MessageListener {
         fun onMessage(message: String)
@@ -34,76 +35,148 @@ class WebSocketManager(
     }
     
     /**
-     * 連接 WebSocket
+     * 連接 Socket.IO
      */
     fun connect() {
-        if (webSocket != null) {
+        if (socket != null && socket!!.connected()) {
             Log.d(TAG, "Already connected")
             return
         }
         
         isManualDisconnect = false
         
-        val request = Request.Builder()
-            .url(wsUrl)
-            .build()
+        try {
+            val opts = IO.Options().apply {
+                reconnection = true
+                reconnectionDelay = 1000
+                reconnectionDelayMax = 5000
+                reconnectionAttempts = Int.MAX_VALUE
+            }
+            
+            socket = IO.socket(serverUrl, opts)
+            
+            // 連接成功
+            socket!!.on(Socket.EVENT_CONNECT, onConnect)
+            
+            // 斷線
+            socket!!.on(Socket.EVENT_DISCONNECT, onDisconnect)
+            
+            // 連接錯誤
+            socket!!.on(Socket.EVENT_CONNECT_ERROR, onConnectError)
+            
+            // 註冊成功
+            socket!!.on("mobile_registered", onRegistered)
+            
+            // Agent 訊息（即時串流）
+            socket!!.on("agent_message", onAgentMessage)
+            
+            // 錯誤訊息
+            socket!!.on("error", onError)
+            
+            Log.d(TAG, "Connecting to $serverUrl")
+            socket!!.connect()
+            
+        } catch (e: URISyntaxException) {
+            Log.e(TAG, "Invalid URL: $serverUrl", e)
+            mainHandler.post {
+                listener.onError("無效的伺服器位址")
+            }
+        }
+    }
+    
+    /**
+     * 連接成功事件
+     */
+    private val onConnect = Emitter.Listener {
+        Log.d(TAG, "Connected")
         
-        Log.d(TAG, "Connecting to $wsUrl")
+        // 發送註冊訊息
+        val registerData = JSONObject().apply {
+            put("device_id", deviceId)
+            put("device_info", JSONObject().apply {
+                put("manufacturer", Build.MANUFACTURER)
+                put("model", Build.MODEL)
+                put("android_version", Build.VERSION.RELEASE)
+            })
+        }
         
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d(TAG, "Connected")
-                mainHandler.post {
-                    listener.onConnected()
-                }
-            }
+        socket?.emit("mobile_register", registerData)
+    }
+    
+    /**
+     * 註冊成功事件
+     */
+    private val onRegistered = Emitter.Listener { args ->
+        Log.d(TAG, "Registered: ${args[0]}")
+        mainHandler.post {
+            listener.onConnected()
+        }
+    }
+    
+    /**
+     * 斷線事件
+     */
+    private val onDisconnect = Emitter.Listener { args ->
+        Log.d(TAG, "Disconnected: ${args.joinToString()}")
+        mainHandler.post {
+            listener.onDisconnected()
+        }
+    }
+    
+    /**
+     * 連接錯誤事件
+     */
+    private val onConnectError = Emitter.Listener { args ->
+        Log.e(TAG, "Connection error: ${args.joinToString()}")
+        mainHandler.post {
+            listener.onError("連接失敗")
+        }
+    }
+    
+    /**
+     * Agent 訊息事件
+     */
+    private val onAgentMessage = Emitter.Listener { args ->
+        try {
+            val data = args[0] as JSONObject
+            val message = data.getString("message")
+            val isDelta = data.optBoolean("delta", false)
+            val isDone = data.optBoolean("done", false)
             
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.d(TAG, "Message received: $text")
-                mainHandler.post {
-                    listener.onMessage(text)
-                }
-            }
+            Log.d(TAG, "Agent message: $message (delta=$isDelta, done=$isDone)")
             
-            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "Closing: $code - $reason")
-                webSocket.close(1000, null)
-            }
-            
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "Closed: $code - $reason")
-                this@WebSocketManager.webSocket = null
+            if (!isDone && message.isNotEmpty()) {
                 mainHandler.post {
-                    listener.onDisconnected()
-                }
-                
-                // 自動重連（如果不是手動斷線）
-                if (!isManualDisconnect) {
-                    reconnectAfterDelay()
+                    listener.onMessage(message)
                 }
             }
-            
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "Connection failed: ${t.message}", t)
-                this@WebSocketManager.webSocket = null
-                mainHandler.post {
-                    listener.onError(t.message ?: "連接失敗")
-                }
-                
-                // 自動重連
-                if (!isManualDisconnect) {
-                    reconnectAfterDelay()
-                }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse agent message", e)
+        }
+    }
+    
+    /**
+     * 錯誤事件
+     */
+    private val onError = Emitter.Listener { args ->
+        try {
+            val data = args[0] as JSONObject
+            val errorMsg = data.getString("message")
+            Log.e(TAG, "Error: $errorMsg")
+            mainHandler.post {
+                listener.onError(errorMsg)
             }
-        })
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse error", e)
+        }
     }
     
     /**
      * 發送訊息
      */
     fun sendMessage(message: String): Boolean {
-        val ws = webSocket
-        if (ws == null) {
+        val s = socket
+        if (s == null || !s.connected()) {
             Log.w(TAG, "Cannot send message: not connected")
             mainHandler.post {
                 listener.onError("未連接")
@@ -112,7 +185,13 @@ class WebSocketManager(
         }
         
         Log.d(TAG, "Sending message: $message")
-        return ws.send(message)
+        
+        val data = JSONObject().apply {
+            put("message", message)
+        }
+        
+        s.emit("mobile_message", data)
+        return true
     }
     
     /**
@@ -121,8 +200,9 @@ class WebSocketManager(
     fun disconnect() {
         Log.d(TAG, "Disconnecting")
         isManualDisconnect = true
-        webSocket?.close(1000, "手動斷開")
-        webSocket = null
+        socket?.disconnect()
+        socket?.off()
+        socket = null
     }
     
     /**
@@ -137,20 +217,7 @@ class WebSocketManager(
     }
     
     /**
-     * 延遲重連（5 秒後）
-     */
-    private fun reconnectAfterDelay() {
-        mainHandler.postDelayed({
-            if (!isManualDisconnect && webSocket == null) {
-                Log.d(TAG, "Auto reconnecting...")
-                listener.onError("5秒後重新連接...")
-                connect()
-            }
-        }, 5000)
-    }
-    
-    /**
      * 是否已連接
      */
-    fun isConnected(): Boolean = webSocket != null
+    fun isConnected(): Boolean = socket?.connected() == true
 }

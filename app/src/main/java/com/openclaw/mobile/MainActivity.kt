@@ -28,7 +28,7 @@ class MainActivity : AppCompatActivity() {
     private val messages = mutableListOf<ChatMessage>()
     
     // WebSocket 端點（可在設定中修改）
-    private val wsUrl = "wss://artiforge.studio/ws/spark"
+    private val wsUrl = "https://artiforge.studio"
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,7 +41,7 @@ class MainActivity : AppCompatActivity() {
         setupListeners()
         
         // 歡迎訊息
-        addSystemMessage("OpenClaw Mobile - Phase 2")
+        addSystemMessage("OpenClaw Mobile - v1.2.0")
         addSystemMessage("連接至 Spark Agent...")
     }
     
