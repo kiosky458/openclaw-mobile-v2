@@ -11,10 +11,9 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.openclaw.mobile.data.ChatMessage
 import com.openclaw.mobile.ui.chat.MessageAdapter
-import com.openclaw.mobile.websocket.WebSocketManager
 
 /**
- * MainActivity - Spark Agent Chat
+ * MainActivity - Spark Agent Chat (測試版本，暫時移除 WebSocket)
  */
 class MainActivity : AppCompatActivity() {
     
@@ -23,12 +22,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var messageAdapter: MessageAdapter
     private lateinit var inputField: EditText
     private lateinit var sendButton: ImageButton
-    private lateinit var webSocketManager: WebSocketManager
     
     private val messages = mutableListOf<ChatMessage>()
-    
-    // WebSocket 端點（可在設定中修改）
-    private val wsUrl = "https://artiforge.studio"
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,12 +32,11 @@ class MainActivity : AppCompatActivity() {
         initializeViews()
         setupToolbar()
         setupRecyclerView()
-        setupWebSocket()
         setupListeners()
         
         // 歡迎訊息
-        addSystemMessage("OpenClaw Mobile - v1.2.0")
-        addSystemMessage("連接至 Spark Agent...")
+        addSystemMessage("OpenClaw Mobile - v1.2.1 (測試版)")
+        addSystemMessage("UI 測試模式 - WebSocket 已暫時移除")
     }
     
     private fun initializeViews() {
@@ -55,8 +49,8 @@ class MainActivity : AppCompatActivity() {
     private fun setupToolbar() {
         setSupportActionBar(toolbar)
         supportActionBar?.apply {
-            title = "Spark Chat"
-            subtitle = "連接中..."
+            title = "Spark Chat (測試)"
+            subtitle = "✓ UI 測試模式"
         }
     }
     
@@ -68,30 +62,6 @@ class MainActivity : AppCompatActivity() {
             }
             adapter = messageAdapter
         }
-    }
-    
-    private fun setupWebSocket() {
-        webSocketManager = WebSocketManager(wsUrl, object : WebSocketManager.MessageListener {
-            override fun onMessage(message: String) {
-                addAgentMessage(message)
-            }
-            
-            override fun onConnected() {
-                addSystemMessage("已連接")
-                updateConnectionStatus(true)
-            }
-            
-            override fun onDisconnected() {
-                addSystemMessage("連接中斷")
-                updateConnectionStatus(false)
-            }
-            
-            override fun onError(error: String) {
-                addSystemMessage("⚠️ $error")
-            }
-        })
-        
-        webSocketManager.connect()
     }
     
     private fun setupListeners() {
@@ -112,12 +82,11 @@ class MainActivity : AppCompatActivity() {
         // 顯示用戶訊息
         addUserMessage(text)
         
-        // 發送到 WebSocket
-        if (webSocketManager.sendMessage(text)) {
-            inputField.text.clear()
-        } else {
-            addSystemMessage("⚠️ 發送失敗")
-        }
+        // 模擬回應
+        addAgentMessage("收到訊息：$text\n\n（這是測試模式，WebSocket 功能已暫時移除）")
+        
+        // 清空輸入框
+        inputField.text.clear()
     }
     
     private fun addUserMessage(text: String) {
@@ -157,10 +126,6 @@ class MainActivity : AppCompatActivity() {
         recyclerView.scrollToPosition(messages.size - 1)
     }
     
-    private fun updateConnectionStatus(connected: Boolean) {
-        supportActionBar?.subtitle = if (connected) "✓ 已連接" else "✗ 未連接"
-    }
-    
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
         menuInflater.inflate(R.menu.main_menu, menu)
         return true
@@ -169,8 +134,7 @@ class MainActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.action_reconnect -> {
-                addSystemMessage("重新連接中...")
-                webSocketManager.reconnect()
+                addSystemMessage("測試模式 - 無需重連")
                 true
             }
             R.id.action_clear -> {
@@ -181,10 +145,5 @@ class MainActivity : AppCompatActivity() {
             }
             else -> super.onOptionsItemSelected(item)
         }
-    }
-    
-    override fun onDestroy() {
-        super.onDestroy()
-        webSocketManager.disconnect()
     }
 }
