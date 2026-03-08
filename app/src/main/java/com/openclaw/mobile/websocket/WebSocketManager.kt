@@ -1,36 +1,24 @@
 package com.openclaw.mobile.websocket
 
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
-import com.google.gson.Gson
-import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.IOException
+import io.socket.client.IO
+import io.socket.client.Socket
+import io.socket.emitter.Emitter
+import org.json.JSONObject
+import java.net.URISyntaxException
 
-/**
- * HTTP Client - 使用 HTTP 輪詢替代 Socket.IO
- */
 class WebSocketManager(
     private val serverUrl: String,
     private val listener: MessageListener
 ) {
     
     companion object {
-        private const val TAG = "HttpClient"
-        private const val POLL_INTERVAL = 1000L // 1秒輪詢一次
+        private const val TAG = "WebSocketManager"
     }
     
-    private val client = OkHttpClient.Builder().build()
-    private val gson = Gson()
-    private val handler = Handler(Looper.getMainLooper())
+    private var socket: Socket? = null
     private val deviceId = "${Build.MANUFACTURER}-${Build.MODEL}-${System.currentTimeMillis()}"
-    
-    private var isConnected = false
-    private var lastMessageId = 0.0
-    private var pollRunnable: Runnable? = null
     
     interface MessageListener {
         fun onMessage(message: String)
@@ -40,152 +28,107 @@ class WebSocketManager(
     }
     
     fun connect() {
-        // 註冊裝置
-        val registerData = mapOf(
-            "device_id" to deviceId,
-            "device_info" to mapOf(
-                "manufacturer" to Build.MANUFACTURER,
-                "model" to Build.MODEL,
-                "android_version" to Build.VERSION.RELEASE
-            )
-        )
-        
-        val json = gson.toJson(registerData)
-        val body = json.toRequestBody("application/json".toMediaType())
-        
-        val request = Request.Builder()
-            .url("$serverUrl/api/mobile/register")
-            .post(body)
-            .build()
-        
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                handler.post {
-                    listener.onError("連接失敗：${e.message}")
-                }
-            }
+        try {
+            // 關鍵：設置 IO.Options（參考 android-stream-relay）
+            val options = IO.Options()
+            options.forceNew = true
+            options.reconnection = true
+            options.reconnectionDelay = 1000
+            options.reconnectionDelayMax = 5000
+            options.reconnectionAttempts = Int.MAX_VALUE
             
-            override fun onResponse(call: Call, response: Response) {
-                if (response.isSuccessful) {
-                    isConnected = true
-                    handler.post {
-                        listener.onConnected()
-                    }
-                    startPolling()
-                } else {
-                    handler.post {
-                        listener.onError("註冊失敗")
-                    }
-                }
+            socket = IO.socket(serverUrl, options)
+            
+            socket!!.on(Socket.EVENT_CONNECT, onConnect)
+            socket!!.on(Socket.EVENT_DISCONNECT, onDisconnect)
+            socket!!.on(Socket.EVENT_CONNECT_ERROR, onConnectError)
+            socket!!.on("mobile_registered", onRegistered)
+            socket!!.on("agent_message", onAgentMessage)
+            socket!!.on("error", onError)
+            
+            socket!!.connect()
+            Log.d(TAG, "Connecting to $serverUrl")
+            
+        } catch (e: URISyntaxException) {
+            Log.e(TAG, "Invalid URL: $serverUrl", e)
+            listener.onError("無效的伺服器位址")
+        }
+    }
+    
+    private val onConnect = Emitter.Listener {
+        Log.d(TAG, "Connected")
+        
+        val registerData = JSONObject().apply {
+            put("device_id", deviceId)
+            put("device_info", JSONObject().apply {
+                put("manufacturer", Build.MANUFACTURER)
+                put("model", Build.MODEL)
+                put("android_version", Build.VERSION.RELEASE)
+            })
+        }
+        
+        socket?.emit("mobile_register", registerData)
+    }
+    
+    private val onRegistered = Emitter.Listener {
+        Log.d(TAG, "Registered")
+        listener.onConnected()
+    }
+    
+    private val onDisconnect = Emitter.Listener {
+        Log.d(TAG, "Disconnected")
+        listener.onDisconnected()
+    }
+    
+    private val onConnectError = Emitter.Listener { args ->
+        Log.e(TAG, "Connection error: ${args.joinToString()}")
+        listener.onError("連接失敗")
+    }
+    
+    private val onAgentMessage = Emitter.Listener { args ->
+        try {
+            val data = args[0] as JSONObject
+            val message = data.getString("message")
+            val isDone = data.optBoolean("done", false)
+            
+            if (!isDone && message.isNotEmpty()) {
+                listener.onMessage(message)
             }
-        })
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse agent message", e)
+        }
+    }
+    
+    private val onError = Emitter.Listener { args ->
+        try {
+            val data = args[0] as JSONObject
+            val errorMsg = data.getString("message")
+            listener.onError(errorMsg)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse error", e)
+        }
     }
     
     fun sendMessage(message: String): Boolean {
-        if (!isConnected) {
+        val s = socket
+        if (s == null || !s.connected()) {
             listener.onError("未連接")
             return false
         }
         
-        val sendData = mapOf(
-            "device_id" to deviceId,
-            "message" to message
-        )
+        val data = JSONObject().apply {
+            put("message", message)
+        }
         
-        val json = gson.toJson(sendData)
-        val body = json.toRequestBody("application/json".toMediaType())
-        
-        val request = Request.Builder()
-            .url("$serverUrl/api/mobile/send")
-            .post(body)
-            .build()
-        
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                handler.post {
-                    listener.onError("發送失敗")
-                }
-            }
-            
-            override fun onResponse(call: Call, response: Response) {
-                Log.d(TAG, "Message sent successfully")
-            }
-        })
-        
+        s.emit("mobile_message", data)
         return true
     }
     
-    private fun startPolling() {
-        pollRunnable = object : Runnable {
-            override fun run() {
-                if (!isConnected) return
-                
-                val pollData = mapOf(
-                    "device_id" to deviceId,
-                    "last_message_id" to lastMessageId
-                )
-                
-                val json = gson.toJson(pollData)
-                val body = json.toRequestBody("application/json".toMediaType())
-                
-                val request = Request.Builder()
-                    .url("$serverUrl/api/mobile/poll")
-                    .post(body)
-                    .build()
-                
-                client.newCall(request).enqueue(object : Callback {
-                    override fun onFailure(call: Call, e: IOException) {
-                        // 忽略輪詢錯誤
-                    }
-                    
-                    override fun onResponse(call: Call, response: Response) {
-                        if (response.isSuccessful) {
-                            val responseData = response.body?.string()
-                            responseData?.let { parseMessages(it) }
-                        }
-                    }
-                })
-                
-                handler.postDelayed(this, POLL_INTERVAL)
-            }
-        }
-        
-        handler.post(pollRunnable!!)
-    }
-    
-    private fun parseMessages(json: String) {
-        try {
-            val data = gson.fromJson(json, PollResponse::class.java)
-            
-            data.messages.forEach { msg ->
-                if (msg.id > lastMessageId) {
-                    lastMessageId = msg.id
-                    
-                    handler.post {
-                        listener.onMessage(msg.content)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse messages", e)
-        }
-    }
-    
     fun disconnect() {
-        isConnected = false
-        pollRunnable?.let { handler.removeCallbacks(it) }
+        socket?.disconnect()
+        socket?.off()
+        socket = null
     }
     
-    fun isConnected(): Boolean = isConnected
-    
-    data class PollResponse(
-        val messages: List<Message>
-    )
-    
-    data class Message(
-        val id: Double,
-        val content: String,
-        val from: String,
-        val timestamp: String
-    )
+    fun isConnected(): Boolean = socket?.connected() == true
 }
