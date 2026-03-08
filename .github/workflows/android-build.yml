@@ -2,7 +2,7 @@ name: Android Build
 
 on:
   push:
-    branches: [ main, test-fix ]
+    branches: [ main, test-fix, test-simple ]
   pull_request:
     branches: [ main ]
 

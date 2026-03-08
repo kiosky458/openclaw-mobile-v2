@@ -1,65 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:gravity="center"
     android:orientation="vertical">
 
-    <!-- Toolbar -->
-    <androidx.appcompat.widget.Toolbar
-        android:id="@+id/toolbar"
-        android:layout_width="match_parent"
-        android:layout_height="?attr/actionBarSize"
-        android:background="?attr/colorPrimary"
-        android:elevation="4dp"
-        android:theme="@style/ThemeOverlay.AppCompat.Dark.ActionBar"
-        app:popupTheme="@style/ThemeOverlay.AppCompat.Light" />
-
-    <!-- Messages RecyclerView -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/messages_recycler_view"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="@android:color/white"
-        android:clipToPadding="false"
-        android:padding="8dp" />
-
-    <!-- Input Area -->
-    <LinearLayout
-        android:layout_width="match_parent"
+    <TextView
+        android:id="@+id/text_view"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:background="#F5F5F5"
-        android:elevation="8dp"
-        android:orientation="horizontal"
-        android:padding="8dp">
-
-        <!-- Text Input -->
-        <EditText
-            android:id="@+id/message_input"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="8dp"
-            android:background="@android:drawable/edit_text"
-            android:hint="輸入訊息..."
-            android:imeOptions="actionSend"
-            android:inputType="textMultiLine"
-            android:maxLines="4"
-            android:minHeight="48dp"
-            android:padding="12dp" />
-
-        <!-- Send Button -->
-        <ImageButton
-            android:id="@+id/send_button"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_gravity="center_vertical"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="發送"
-            android:src="@android:drawable/ic_menu_send"
-            android:tint="?attr/colorPrimary" />
-
-    </LinearLayout>
+        android:text="Hello World"
+        android:textSize="24sp" />
 
 </LinearLayout>
