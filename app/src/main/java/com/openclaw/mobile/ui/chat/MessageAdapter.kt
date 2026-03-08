@@ -1,11 +1,11 @@
 package com.openclaw.mobile.ui.chat
 
+import android.graphics.Color
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
-import com.openclaw.mobile.R
 import com.openclaw.mobile.data.ChatMessage
 
 class MessageAdapter(
@@ -27,11 +27,17 @@ class MessageAdapter(
     class MessageViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val textView: TextView = itemView.findViewById(android.R.id.text1)
         
+        init {
+            // 黑底設定
+            itemView.setBackgroundColor(Color.parseColor("#000000"))
+            textView.setTextColor(Color.parseColor("#FFFFFF"))
+        }
+        
         fun bind(message: ChatMessage) {
             val prefix = when {
-                message.isSystem -> "[系統]"
-                message.isFromUser -> "[我]"
-                else -> "[Agent]"
+                message.isSystem -> "💬"
+                message.isFromUser -> "👤"
+                else -> "🤖"
             }
             textView.text = "$prefix ${message.content}"
         }
