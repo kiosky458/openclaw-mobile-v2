@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.Toolbar
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.openclaw.mobile.data.ChatMessage
@@ -11,6 +12,7 @@ import com.openclaw.mobile.ui.chat.MessageAdapter
 
 class MainActivity : AppCompatActivity() {
     
+    private lateinit var toolbar: Toolbar
     private lateinit var recyclerView: RecyclerView
     private lateinit var messageAdapter: MessageAdapter
     private lateinit var inputField: EditText
@@ -22,16 +24,26 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         
+        toolbar = findViewById(R.id.toolbar)
         recyclerView = findViewById(R.id.messages_recycler_view)
         inputField = findViewById(R.id.message_input)
         sendButton = findViewById(R.id.send_button)
         
+        setupToolbar()
         setupRecyclerView()
         setupListeners()
         
         // 初始訊息
-        addSystemMessage("v1.0.2 測試版")
-        addSystemMessage("RecyclerView + 簡單 UI")
+        addSystemMessage("v1.0.3 測試版")
+        addSystemMessage("加入 Toolbar（簡化版）")
+    }
+    
+    private fun setupToolbar() {
+        setSupportActionBar(toolbar)
+        supportActionBar?.apply {
+            title = "Spark Chat"
+            subtitle = "測試 Toolbar"
+        }
     }
     
     private fun setupRecyclerView() {
